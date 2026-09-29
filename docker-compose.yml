@@ -1,7 +1,7 @@
 # Ambiente local com Docker.
 # Uso: docker compose up --build
 services:
-  webhook-service:
+  motopema-talent-ai:
     build: .
     env_file: .env
     ports:
