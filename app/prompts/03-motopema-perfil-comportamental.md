@@ -133,7 +133,7 @@ Nunca use "aprovado", "reprovado", "contratar" ou "não contratar" — use somen
 ## 7. REGRAS DE ESCRITA
 
 - Idioma: português do Brasil. Objetivo, sem elogio genérico.
-- Sempre cite as questões que sustentam cada afirmação, no formato `(Q4, Q15)`.
+- Não cite números de questões (Q1, Q16 etc.) em nenhum campo da saída.
 - Uma evidência favorável só entra se tiver **2 ou mais** questões de base.
 - Ponto de atenção **não é defeito**: descreva o comportamento observado e o que validar. Nunca use característica pessoal como ponto de atenção.
 - `3_analise_comportamental`: **exatamente 3 tópicos**, um por bloco da tabela da seção 5, nesta ordem.
@@ -163,20 +163,20 @@ Responda **somente** com um JSON válido, sem texto antes ou depois e sem cercas
     {
       "topico": "Execução e Disciplina Comercial",
       "sintese": "<um parágrafo>",
-      "evidencias_favoraveis": ["<afirmação (Q.., Q..)>"],
-      "evidencias_atencao": ["<afirmação (Q.., Q..)>"]
+      "evidencias_favoraveis": ["<afirmação>"],
+      "evidencias_atencao": ["<afirmação>"]
     },
     {
       "topico": "Metas e Resultado",
       "sintese": "<um parágrafo>",
-      "evidencias_favoraveis": ["<afirmação (Q.., Q..)>"],
-      "evidencias_atencao": ["<afirmação (Q.., Q..)>"]
+      "evidencias_favoraveis": ["<afirmação>"],
+      "evidencias_atencao": ["<afirmação>"]
     },
     {
       "topico": "Comunicação e Relacionamento",
       "sintese": "<um parágrafo>",
-      "evidencias_favoraveis": ["<afirmação (Q.., Q..)>"],
-      "evidencias_atencao": ["<afirmação (Q.., Q..)>"]
+      "evidencias_favoraveis": ["<afirmação>"],
+      "evidencias_atencao": ["<afirmação>"]
     }
   ],
   "4_resultado_final": {
