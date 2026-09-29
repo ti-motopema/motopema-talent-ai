@@ -1,8 +1,7 @@
-"""Configuração centralizada e desacoplada da aplicação.
+"""Configuração centralizada via pydantic-settings.
 
-Todas as configurações vêm de variáveis de ambiente (ou do arquivo .env),
-validadas e tipadas via pydantic-settings. Nenhum outro módulo deve ler
-os.environ diretamente — sempre importe `get_settings()`.
+Todas as configurações vêm de variáveis de ambiente (ou do arquivo .env).
+Nenhum outro módulo deve ler os.environ diretamente — sempre use get_settings().
 """
 
 from functools import lru_cache
@@ -12,28 +11,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Configurações da aplicação, carregadas do ambiente/.env."""
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    # Identidade e ambiente
-    app_name: str = "webhook-service"
+    # Identity and environment
+    app_name: str = "motopema-talent-ai"
     environment: Literal["dev", "staging", "prod"] = "dev"
-    debug: bool = False
     log_level: str = "INFO"
 
-    # Servidor
+    # Server
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Segurança
-    # Segredo para validação HMAC-SHA256 das assinaturas dos webhooks.
-    # Se None/vazio, a validação é desativada (uso apenas em desenvolvimento).
-    webhook_secret: str | None = None
+    # LLM — provider-agnostic
+    llm_api_key: str = ""
+    llm_model: str = "gpt-4o"
+    llm_transcription_model: str = "gpt-4o-transcribe"
+
+    # Prompts — paths relative to the project root
+    prompt_video_path: str = "app/prompts/02-motopema-avaliacao-video.md"
+    prompt_curriculo_path: str = "app/prompts/01-motopema-avaliacao-curriculo.md"
+    prompt_comportamental_path: str = "app/prompts/03-motopema-perfil-comportamental.md"
 
     @property
     def is_prod(self) -> bool:
@@ -42,5 +43,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Retorna a instância única (cacheada) de Settings."""
     return Settings()
