@@ -32,13 +32,6 @@ class AppError(Exception):
         self.details = details
 
 
-class InvalidSignatureError(AppError):
-    """Assinatura HMAC ausente ou inválida no webhook recebido."""
-
-    status_code = 401
-    error_code = "invalid_signature"
-
-
 class PayloadValidationError(AppError):
     """Payload recebido não corresponde ao schema esperado."""
 
@@ -68,7 +61,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         logger.warning(
-            "erro de aplicação",
+            "application error",
             extra={
                 "extra_data": {
                     "error_code": exc.error_code,
@@ -82,9 +75,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-        # Erros não previstos: loga stack trace completo, mas não vaza detalhes ao cliente
+        # Unexpected errors: log full stack trace but do not leak details to the client
         logger.exception(
-            "erro não tratado",
+            "unhandled error",
             extra={"extra_data": {"path": request.url.path}},
         )
         return _error_response(500, "internal_error", "Erro interno inesperado.")
