@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     prompt_video_path: str = "app/prompts/02-motopema-avaliacao-video.md"
     prompt_curriculo_path: str = "app/prompts/01-motopema-avaliacao-curriculo.md"
     prompt_comportamental_path: str = "app/prompts/03-motopema-perfil-comportamental.md"
+    prompt_consolidado_path: str = "app/prompts/04-motopema-avaliacao-consolidada.md"
 
     @property
     def is_prod(self) -> bool:

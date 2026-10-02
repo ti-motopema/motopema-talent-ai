@@ -98,6 +98,12 @@ class BehavioralProfileResponse(BaseModel):
     evaluation: dict[str, Any] | str
 
 
+class ConsolidatedEvaluationResponse(BaseModel):
+    nome_completo: str
+    fontes_utilizadas: list[str]
+    evaluation: dict[str, Any] | str
+
+
 class VideoEvaluationResponse(BaseModel):
     filename: str | None = None
     mime_type: str
@@ -186,6 +192,15 @@ def get_behavioral_service(settings=Depends(get_settings)) -> OpenAIService:
     )
 
 
+def get_consolidated_service(settings=Depends(get_settings)) -> OpenAIService:
+    return OpenAIService(
+        api_key=settings.llm_api_key,
+        model_name=settings.llm_model,
+        system_prompt=_load_prompt(settings.prompt_consolidado_path),
+        use_json_format=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -239,8 +254,8 @@ async def create_video_evaluation(
 @router.post("/resume", status_code=201, response_model=ResumeEvaluationResponse)
 async def create_resume_evaluation(
     nome_completo: str = Form(..., description="Nome completo do candidato"),
-    formulario: str | None = Form(default=None, description="Formulário do candidato serializado em JSON"),
-    file: UploadFile | None = File(default=None, description="Currículo do candidato (PDF, imagem, DOCX ou TXT)"),
+    formulario: str | None = Form(default=None, description="Formulário serializado em JSON"),
+    file: UploadFile | None = File(default=None, description="Currículo (PDF, DOCX ou TXT)"),
     prompt: str | None = Form(default=None, description="Instrução adicional ao modelo (opcional)"),
     service: OpenAIService = Depends(get_resume_service),
 ) -> ResumeEvaluationResponse:
@@ -249,8 +264,10 @@ async def create_resume_evaluation(
     if formulario:
         try:
             parsed_formulario = CandidatoFormulario.model_validate_json(formulario)
-        except Exception:
-            raise PayloadValidationError("Formulário inválido. Envie um JSON válido no campo 'formulario'.")
+        except Exception as exc:
+            raise PayloadValidationError(
+                "Formulário inválido. Envie um JSON válido no campo 'formulario'."
+            ) from exc
 
     if not file:
         raise PayloadValidationError("Envie o currículo (PDF, imagem, DOCX ou TXT).")
@@ -265,7 +282,9 @@ async def create_resume_evaluation(
 
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".pdf", ".txt", ".docx"} | _IMAGE_SUFFIXES:
-        raise PayloadValidationError("Formato não suportado. Envie PDF, DOCX, imagem (JPG/PNG/WEBP) ou TXT.")
+        raise PayloadValidationError(
+            "Formato não suportado. Envie PDF, DOCX, imagem (JPG/PNG/WEBP) ou TXT."
+        )
 
     effective_prompt = prompt or ""
     if parsed_formulario:
@@ -280,24 +299,38 @@ async def create_resume_evaluation(
         page_images, pages = _pdf_to_images(content)
         if not page_images:
             raise PayloadValidationError("Não foi possível renderizar o PDF.")
-        logger.info("resume evaluation started (PDF)", extra={"extra_data": {"filename": file.filename, "pages": pages}})
-        raw = await asyncio.to_thread(service.analyze_pdf_images, page_images, effective_prompt, None)
+        logger.info(
+            "resume evaluation started (PDF)",
+            extra={"extra_data": {"filename": file.filename, "pages": pages}},
+        )
+        raw = await asyncio.to_thread(
+            service.analyze_pdf_images, page_images, effective_prompt, None
+        )
 
     elif suffix in _IMAGE_SUFFIXES:
         image_b64 = base64.b64encode(content).decode()
         pages = 1
-        logger.info("resume evaluation started (image)", extra={"extra_data": {"filename": file.filename}})
-        raw = await asyncio.to_thread(service.analyze_pdf_images, [image_b64], effective_prompt, None)
+        logger.info(
+            "resume evaluation started (image)",
+            extra={"extra_data": {"filename": file.filename}},
+        )
+        raw = await asyncio.to_thread(
+            service.analyze_pdf_images, [image_b64], effective_prompt, None
+        )
 
     elif suffix == ".docx":
         from io import BytesIO
+
         import docx
         doc = docx.Document(BytesIO(content))
         text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         if not text.strip():
             raise PayloadValidationError("Não foi possível extrair texto do DOCX.")
         pages = 1
-        logger.info("resume evaluation started (DOCX)", extra={"extra_data": {"filename": file.filename, "chars": len(text)}})
+        logger.info(
+            "resume evaluation started (DOCX)",
+            extra={"extra_data": {"filename": file.filename, "chars": len(text)}},
+        )
         raw = await asyncio.to_thread(service.analyze_document, text, effective_prompt)
 
     else:
@@ -305,7 +338,10 @@ async def create_resume_evaluation(
         if not text.strip():
             raise PayloadValidationError("Arquivo de texto vazio.")
         pages = 1
-        logger.info("resume evaluation started (TXT)", extra={"extra_data": {"filename": file.filename, "chars": len(text)}})
+        logger.info(
+            "resume evaluation started (TXT)",
+            extra={"extra_data": {"filename": file.filename, "chars": len(text)}},
+        )
         raw = await asyncio.to_thread(service.analyze_document, text, effective_prompt)
 
     logger.info("ai response received", extra={"extra_data": {"raw": raw}})
@@ -330,14 +366,14 @@ async def create_resume_evaluation(
 @router.post("/behavioral-profile", status_code=201, response_model=BehavioralProfileResponse)
 async def create_behavioral_profile(
     nome_completo: str = Form(..., description="Nome completo do candidato"),
-    perguntas: str = Form(..., description="Respostas do questionário comportamental serializado em JSON"),
+    perguntas: str = Form(..., description="Respostas do questionário comportamental em JSON"),
     service: OpenAIService = Depends(get_behavioral_service),
 ) -> BehavioralProfileResponse:
     """Mapeia o perfil comportamental do candidato com base nas 30 respostas do questionário."""
     try:
         parsed = PerfilComportamental.model_validate_json(perguntas)
-    except Exception:
-        raise PayloadValidationError("Campo 'perguntas' inválido. Envie um JSON válido.")
+    except Exception as exc:
+        raise PayloadValidationError("Campo 'perguntas' inválido. Envie um JSON válido.") from exc
 
     respostas_texto = json.dumps(
         parsed.model_dump(exclude_none=True), ensure_ascii=False, indent=2
@@ -358,5 +394,153 @@ async def create_behavioral_profile(
 
     return BehavioralProfileResponse(
         nome_completo=nome_completo,
+        evaluation=evaluation,
+    )
+
+
+@router.post("/consolidated", status_code=201, response_model=ConsolidatedEvaluationResponse)
+async def create_consolidated_evaluation(
+    nome_completo: str = Form(..., description="Nome completo do candidato"),
+    video: UploadFile | None = File(default=None, description="Vídeo da prova prática (opcional)"),
+    curriculo: UploadFile | None = File(default=None),
+    formulario: str | None = Form(default=None),
+    perguntas: str | None = Form(default=None),
+    video_svc: OpenAIService = Depends(get_video_service),
+    resume_svc: OpenAIService = Depends(get_resume_service),
+    behavioral_svc: OpenAIService = Depends(get_behavioral_service),
+    consolidated_svc: OpenAIService = Depends(get_consolidated_service),
+) -> ConsolidatedEvaluationResponse:
+    """Roda vídeo, currículo e perfil comportamental em paralelo e sintetiza em um parecer único."""
+    fontes: list[str] = []
+    tasks: dict[str, Any] = {}
+
+    # --- video ---
+    if video:
+        video_content = await video.read()
+        if video_content:
+            mime_type = _detect_mime(video)
+            tasks["video"] = asyncio.to_thread(
+                video_svc.analyze_video, video_content, mime_type, ""
+            )
+
+    # --- currículo ---
+    parsed_formulario: CandidatoFormulario | None = None
+    if formulario:
+        try:
+            parsed_formulario = CandidatoFormulario.model_validate_json(formulario)
+        except Exception as exc:
+            raise PayloadValidationError(
+                "Formulário inválido. Envie um JSON válido no campo 'formulario'."
+            ) from exc
+
+    if curriculo:
+        curriculo_content = await curriculo.read()
+        if curriculo_content:
+            suffix = Path(curriculo.filename or "").suffix.lower()
+            form_ctx = ""
+            if parsed_formulario:
+                form_ctx = "Formulário do candidato:\n" + json.dumps(
+                    parsed_formulario.model_dump(exclude_none=True), ensure_ascii=False, indent=2
+                )
+            if suffix == ".pdf":
+                page_images, _ = _pdf_to_images(curriculo_content)
+                if page_images:
+                    tasks["curriculo"] = asyncio.to_thread(
+                        resume_svc.analyze_pdf_images, page_images, form_ctx, None
+                    )
+            elif suffix in _IMAGE_SUFFIXES:
+                image_b64 = base64.b64encode(curriculo_content).decode()
+                tasks["curriculo"] = asyncio.to_thread(
+                    resume_svc.analyze_pdf_images, [image_b64], form_ctx, None
+                )
+            elif suffix == ".docx":
+                from io import BytesIO
+
+                import docx as _docx
+                doc = _docx.Document(BytesIO(curriculo_content))
+                text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+                if text.strip():
+                    tasks["curriculo"] = asyncio.to_thread(
+                        resume_svc.analyze_document, text, form_ctx
+                    )
+            else:
+                text = curriculo_content.decode("utf-8", errors="replace")
+                if text.strip():
+                    tasks["curriculo"] = asyncio.to_thread(
+                        resume_svc.analyze_document, text, form_ctx
+                    )
+
+    # --- comportamental ---
+    if perguntas:
+        try:
+            parsed_perguntas = PerfilComportamental.model_validate_json(perguntas)
+        except Exception as exc:
+            raise PayloadValidationError(
+                "Campo 'perguntas' inválido. Envie um JSON válido."
+            ) from exc
+        respostas_texto = json.dumps(
+            parsed_perguntas.model_dump(exclude_none=True), ensure_ascii=False, indent=2
+        )
+        behavioral_prompt = f"Respostas do candidato {nome_completo}:\n\n{respostas_texto}"
+        tasks["comportamental"] = asyncio.to_thread(
+            behavioral_svc.analyze_document, behavioral_prompt, ""
+        )
+
+    if not tasks:
+        raise PayloadValidationError(
+            "Envie ao menos uma das fontes: vídeo, currículo ou perguntas comportamentais."
+        )
+
+    logger.info(
+        "consolidated evaluation started",
+        extra={"extra_data": {"candidato": nome_completo, "fontes": list(tasks.keys())}},
+    )
+
+    # run all analyses concurrently
+    results_raw = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    results: dict[str, Any] = {}
+    for key, raw in zip(tasks.keys(), results_raw, strict=False):
+        if isinstance(raw, Exception):
+            logger.warning(
+                "partial evaluation failed",
+                extra={"extra_data": {"fonte": key, "error": str(raw)}},
+            )
+            continue
+        fontes.append(key)
+        try:
+            results[key] = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            results[key] = raw
+
+    if parsed_formulario:
+        results["formulario"] = parsed_formulario.model_dump(exclude_none=True)
+        if "formulario" not in fontes:
+            fontes.append("formulario")
+
+    synthesis_input = json.dumps(
+        {"candidato": nome_completo, **{f"avaliacao_{k}" if k != "formulario" else k: v
+                                        for k, v in results.items()}},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    raw_consolidated = await asyncio.to_thread(
+        consolidated_svc.analyze_document, synthesis_input, ""
+    )
+
+    logger.info(
+        "consolidated ai response received",
+        extra={"extra_data": {"raw": raw_consolidated}},
+    )
+
+    evaluation: dict[str, Any] | str
+    try:
+        evaluation = json.loads(raw_consolidated)
+    except json.JSONDecodeError:
+        evaluation = raw_consolidated
+
+    return ConsolidatedEvaluationResponse(
+        nome_completo=nome_completo,
+        fontes_utilizadas=fontes,
         evaluation=evaluation,
     )

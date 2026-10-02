@@ -71,14 +71,17 @@ class OpenAIService:
         prompt: str,
         form_images: list[str] | None = None,
     ) -> str:
-        """Analisa currículo (PDF) e, opcionalmente, formulário complementar — ambos como imagens JPEG base64."""
+        """Analisa currículo (PDF) e formulário complementar como imagens JPEG base64."""
         if not page_images and not form_images:
             raise ExternalServiceError("Nenhuma página pôde ser renderizada do PDF.")
 
         content: list[dict[str, Any]] = [
             {"type": "text", "text": "Currículo do candidato:"},
             *[
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img}", "detail": "high"}}
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{img}", "detail": "high"},
+                }
                 for img in page_images
             ],
         ]
@@ -86,7 +89,10 @@ class OpenAIService:
         if form_images:
             content.append({"type": "text", "text": "Formulário complementar do candidato:"})
             content.extend(
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img}", "detail": "high"}}
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{img}", "detail": "high"},
+                }
                 for img in form_images
             )
 
@@ -95,7 +101,12 @@ class OpenAIService:
 
         logger.info(
             "analysing PDF via vision",
-            extra={"extra_data": {"cv_pages": len(page_images), "form_pages": len(form_images or [])}},
+            extra={
+                "extra_data": {
+                    "cv_pages": len(page_images),
+                    "form_pages": len(form_images or []),
+                }
+            },
         )
         return self._call(content)
 
@@ -151,7 +162,10 @@ class OpenAIService:
         if not raw:
             raise ExternalServiceError("OpenAI retornou resposta vazia.")
 
-        logger.info("response received", extra={"extra_data": {"chars": len(raw), "model": self._model}})
+        logger.info(
+            "response received",
+            extra={"extra_data": {"chars": len(raw), "model": self._model}},
+        )
         return raw
 
 
@@ -194,12 +208,12 @@ def _extract_frames_ffmpeg(video_path: str, output_dir: str) -> list[str]:
 def _extract_audio_ffmpeg(video_path: str, output_path: str) -> bool:
     """Extract audio track to mp3 using bundled ffmpeg. Returns True on success."""
     try:
-        subprocess.run(
-            [_ffmpeg_exe(), "-i", video_path, "-vn", "-acodec", "mp3", "-q:a", "4", output_path, "-y"],
-            capture_output=True,
-            timeout=120,
-            check=True,
-        )
+        cmd = [
+            _ffmpeg_exe(), "-i", video_path,
+            "-vn", "-acodec", "mp3", "-q:a", "4",
+            output_path, "-y",
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=120, check=True)
         return os.path.exists(output_path) and os.path.getsize(output_path) > 0
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
