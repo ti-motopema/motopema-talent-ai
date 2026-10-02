@@ -99,21 +99,15 @@ class BehavioralProfileResponse(BaseModel):
 
 
 class SummarizeRequest(BaseModel):
-    """Campos do CRM com os resultados já computados de cada etapa."""
-
     nome_completo: str
-    # UF_CRM_9_1790363516350
     resultado_perfil: str | None = None
-    # UF_CRM_9_1790360637060
     resultado_video: str | None = None
-    # UF_CRM_9_1790164903126
     resultado_curriculo: str | None = None
 
 
 class SummarizeResponse(BaseModel):
     nome_completo: str
     fontes_utilizadas: list[str]
-    # content for UF_CRM_9_1790942767
     resumo: dict[str, Any] | str
 
 
