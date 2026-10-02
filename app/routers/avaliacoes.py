@@ -104,6 +104,25 @@ class ConsolidatedEvaluationResponse(BaseModel):
     evaluation: dict[str, Any] | str
 
 
+class SummarizeRequest(BaseModel):
+    """Campos do CRM com os resultados já computados de cada etapa."""
+
+    nome_completo: str
+    # UF_CRM_9_1790363516350
+    resultado_perfil: str | None = None
+    # UF_CRM_9_1790360637060
+    resultado_video: str | None = None
+    # UF_CRM_9_1790164903126
+    resultado_curriculo: str | None = None
+
+
+class SummarizeResponse(BaseModel):
+    nome_completo: str
+    fontes_utilizadas: list[str]
+    # content for UF_CRM_9_1790942767
+    resumo: dict[str, Any] | str
+
+
 class VideoEvaluationResponse(BaseModel):
     filename: str | None = None
     mime_type: str
@@ -543,4 +562,66 @@ async def create_consolidated_evaluation(
         nome_completo=nome_completo,
         fontes_utilizadas=fontes,
         evaluation=evaluation,
+    )
+
+
+@router.post("/summarize", status_code=201, response_model=SummarizeResponse)
+async def summarize_from_crm_fields(
+    body: SummarizeRequest,
+    service: OpenAIService = Depends(get_consolidated_service),
+) -> SummarizeResponse:
+    """Gera resumo consolidado a partir dos resultados já computados no CRM.
+
+    Recebe os campos UF_CRM_9_1790363516350 (perfil), UF_CRM_9_1790360637060
+    (vídeo) e UF_CRM_9_1790164903126 (currículo) e produz o conteúdo para
+    UF_CRM_9_1790942767 (resumo final).
+    """
+    fontes: list[str] = []
+    payload: dict[str, Any] = {"candidato": body.nome_completo}
+
+    def _parse(raw: str | None, key: str) -> Any:
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return raw
+
+    if body.resultado_perfil:
+        payload["perfil_comportamental"] = _parse(body.resultado_perfil, "perfil")
+        fontes.append("comportamental")
+
+    if body.resultado_video:
+        payload["avaliacao_video"] = _parse(body.resultado_video, "video")
+        fontes.append("video")
+
+    if body.resultado_curriculo:
+        payload["avaliacao_curriculo"] = _parse(body.resultado_curriculo, "curriculo")
+        fontes.append("curriculo")
+
+    if not fontes:
+        raise PayloadValidationError(
+            "Envie ao menos um resultado: resultado_perfil, resultado_video ou resultado_curriculo."
+        )
+
+    logger.info(
+        "summarize started",
+        extra={"extra_data": {"candidato": body.nome_completo, "fontes": fontes}},
+    )
+
+    synthesis_input = json.dumps(payload, ensure_ascii=False, indent=2)
+    raw = await asyncio.to_thread(service.analyze_document, synthesis_input, "")
+
+    logger.info("summarize response received", extra={"extra_data": {"raw": raw}})
+
+    resumo: dict[str, Any] | str
+    try:
+        resumo = json.loads(raw)
+    except json.JSONDecodeError:
+        resumo = raw
+
+    return SummarizeResponse(
+        nome_completo=body.nome_completo,
+        fontes_utilizadas=fontes,
+        resumo=resumo,
     )
