@@ -151,11 +151,15 @@ def _detect_mime(file: UploadFile) -> str:
 
 def _pdf_to_images(content: bytes, max_pages: int = 10) -> tuple[list[str], int]:
     """Renderiza páginas do PDF como JPEG base64. Funciona com PDFs de texto e escaneados."""
-    import fitz  # pymupdf — lazy import
+    import pymupdf
 
-    doc = fitz.open(stream=content, filetype="pdf")
+    try:
+        doc = pymupdf.open(stream=content, filetype="pdf")
+    except Exception as exc:
+        raise PayloadValidationError("PDF inválido ou corrompido. Envie um arquivo PDF válido.") from exc
+
     total = len(doc)
-    matrix = fitz.Matrix(1.5, 1.5)  # 1.5x scale — adequate quality without excessive size
+    matrix = pymupdf.Matrix(1.5, 1.5)
 
     images = [
         base64.b64encode(doc[i].get_pixmap(matrix=matrix).tobytes("jpeg")).decode()
