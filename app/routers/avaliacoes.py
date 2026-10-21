@@ -267,6 +267,8 @@ async def create_resume_evaluation(
     nome_completo: str = Form(..., description="Nome completo do candidato"),
     formulario: str | None = Form(default=None, description="Formulário serializado em JSON"),
     file: UploadFile | None = File(default=None, description="Currículo (PDF, DOCX ou TXT)"),
+    file_base64: str | None = Form(default=None, description="Currículo em base64 (alternativa ao campo file)"),
+    file_name: str | None = Form(default=None, description="Nome do arquivo quando enviado via file_base64"),
     prompt: str | None = Form(default=None, description="Instrução adicional ao modelo (opcional)"),
     service: OpenAIService = Depends(get_resume_service),
 ) -> ResumeEvaluationResponse:
@@ -280,10 +282,22 @@ async def create_resume_evaluation(
                 "Formulário inválido. Envie um JSON válido no campo 'formulario'."
             ) from exc
 
-    if not file:
-        raise PayloadValidationError("Envie o currículo (PDF, imagem, DOCX ou TXT).")
+    # Resolve conteúdo e nome do arquivo — aceita upload binário ou base64
+    content: bytes
+    filename: str
 
-    content = await file.read()
+    if file_base64:
+        try:
+            content = base64.b64decode(file_base64)
+        except Exception as exc:
+            raise PayloadValidationError("Campo 'file_base64' não é base64 válido.") from exc
+        filename = file_name or "curriculo.pdf"
+    elif file:
+        content = await file.read()
+        filename = file.filename or ""
+    else:
+        raise PayloadValidationError("Envie o currículo via 'file' ou 'file_base64'.")
+
     if not content:
         raise PayloadValidationError("Arquivo de currículo vazio.")
     if len(content) > _MAX_DOC_BYTES:
@@ -291,7 +305,7 @@ async def create_resume_evaluation(
             f"Arquivo muito grande ({len(content) // (1024 * 1024)} MB). Limite: 10 MB."
         )
 
-    suffix = Path(file.filename or "").suffix.lower()
+    suffix = Path(filename).suffix.lower()
     if suffix not in {".pdf", ".txt", ".docx"} | _IMAGE_SUFFIXES:
         raise PayloadValidationError(
             "Formato não suportado. Envie PDF, DOCX, imagem (JPG/PNG/WEBP) ou TXT."
@@ -312,7 +326,7 @@ async def create_resume_evaluation(
             raise PayloadValidationError("Não foi possível renderizar o PDF.")
         logger.info(
             "resume evaluation started (PDF)",
-            extra={"extra_data": {"filename": file.filename, "pages": pages}},
+            extra={"extra_data": {"filename": filename, "pages": pages}},
         )
         raw = await asyncio.to_thread(
             service.analyze_pdf_images, page_images, effective_prompt, None
@@ -323,7 +337,7 @@ async def create_resume_evaluation(
         pages = 1
         logger.info(
             "resume evaluation started (image)",
-            extra={"extra_data": {"filename": file.filename}},
+            extra={"extra_data": {"filename": filename}},
         )
         raw = await asyncio.to_thread(
             service.analyze_pdf_images, [image_b64], effective_prompt, None
@@ -340,7 +354,7 @@ async def create_resume_evaluation(
         pages = 1
         logger.info(
             "resume evaluation started (DOCX)",
-            extra={"extra_data": {"filename": file.filename, "chars": len(text)}},
+            extra={"extra_data": {"filename": filename, "chars": len(text)}},
         )
         raw = await asyncio.to_thread(service.analyze_document, text, effective_prompt)
 
@@ -351,7 +365,7 @@ async def create_resume_evaluation(
         pages = 1
         logger.info(
             "resume evaluation started (TXT)",
-            extra={"extra_data": {"filename": file.filename, "chars": len(text)}},
+            extra={"extra_data": {"filename": filename, "chars": len(text)}},
         )
         raw = await asyncio.to_thread(service.analyze_document, text, effective_prompt)
 
@@ -368,7 +382,7 @@ async def create_resume_evaluation(
     return ResumeEvaluationResponse(
         nome_completo=nome_completo,
         formulario=parsed_formulario,
-        filename=file.filename,
+        filename=filename,
         pages=pages,
         evaluation=evaluation,
     )
