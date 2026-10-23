@@ -375,6 +375,20 @@ async def create_resume_evaluation(
         )
 
     suffix = Path(filename).suffix.lower()
+
+    # Magic bytes override — garante detecção correta quando o nome do arquivo está
+    # ausente ou com extensão errada (ex.: file_name não enviado → padrão ".pdf").
+    if content[:4] == b"%PDF":
+        suffix = ".pdf"
+    elif content[:2] == b"PK":
+        suffix = ".docx"
+    elif content[:8] == b"\x89PNG\r\n\x1a\n":
+        suffix = ".png"
+    elif content[:2] in (b"\xff\xd8",):
+        suffix = ".jpg"
+    elif content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        suffix = ".webp"
+
     if suffix not in {".pdf", ".txt", ".docx"} | _IMAGE_SUFFIXES:
         raise PayloadValidationError(
             "Formato não suportado. Envie PDF, DOCX, imagem (JPG/PNG/WEBP) ou TXT."
@@ -418,7 +432,13 @@ async def create_resume_evaluation(
         import docx
 
         doc = docx.Document(BytesIO(content))
-        text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        parts: list[str] = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+        text = "\n".join(parts)
         if not text.strip():
             raise PayloadValidationError("Não foi possível extrair texto do DOCX.")
         pages = 1
