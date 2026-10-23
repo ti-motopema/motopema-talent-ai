@@ -9,7 +9,7 @@ WORKDIR /srv/app
 
 COPY pyproject.toml README.md ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN rm -rf *.egg-info && pip install --no-cache-dir .
 
 # Usuário não-root
 RUN useradd --create-home appuser
