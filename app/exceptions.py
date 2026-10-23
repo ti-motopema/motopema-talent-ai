@@ -8,7 +8,9 @@ Nenhum endpoint precisa de try/except para erros conhecidos.
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.logging_config import get_logger
 
@@ -57,6 +59,34 @@ def _error_response(
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Registra os handlers globais de exceção na aplicação."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+        logger.warning(
+            "http error",
+            extra={
+                "extra_data": {
+                    "status_code": exc.status_code,
+                    "path": request.url.path,
+                    "detail": exc.detail,
+                }
+            },
+        )
+        return _error_response(exc.status_code, "http_error", str(exc.detail))
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        logger.warning(
+            "request validation error",
+            extra={
+                "extra_data": {
+                    "status_code": 422,
+                    "path": request.url.path,
+                    "errors": exc.errors(),
+                }
+            },
+        )
+        return _error_response(422, "invalid_payload", "Dados da requisição inválidos.", exc.errors())
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
