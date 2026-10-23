@@ -156,7 +156,9 @@ def _pdf_to_images(content: bytes, max_pages: int = 10) -> tuple[list[str], int]
     try:
         doc = pymupdf.open(stream=content, filetype="pdf")
     except Exception as exc:
-        raise PayloadValidationError("PDF inválido ou corrompido. Envie um arquivo PDF válido.") from exc
+        raise PayloadValidationError(
+            "PDF inválido ou corrompido. Envie um arquivo PDF válido."
+        ) from exc
 
     total = len(doc)
     matrix = pymupdf.Matrix(1.5, 1.5)
@@ -213,6 +215,64 @@ def get_consolidated_service(settings=Depends(get_settings)) -> OpenAIService:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _parse_form(request: Request) -> Any:
+    """Parse multipart form with a 20 MB field size limit.
+
+    Tries Starlette's native max_field_size (recent versions) and falls back
+    to python-multipart directly — which has no per-field cap — for older installs.
+    """
+    max_field = 20 * 1024 * 1024
+    try:
+        return await request.form(max_field_size=max_field)
+    except TypeError:
+        pass  # older Starlette — parse manually below
+
+    import io
+
+    from multipart.multipart import create_form_parser
+
+    body = await request.body()
+    headers: dict[str, bytes] = {"content-type": request.headers.get("content-type", "").encode()}
+    result: dict[str, Any] = {}
+
+    def _on_field(field: Any) -> None:
+        key = (
+            field.field_name.decode()
+            if isinstance(field.field_name, bytes)
+            else str(field.field_name)
+        )
+        val = (
+            field.value.decode("utf-8", errors="replace")
+            if isinstance(field.value, bytes)
+            else str(field.value)
+        )
+        result[key] = val
+
+    def _on_file(file: Any) -> None:
+        key = (
+            file.field_name.decode() if isinstance(file.field_name, bytes) else str(file.field_name)
+        )
+        fname = ""
+        if getattr(file, "file_name", None):
+            fname = (
+                file.file_name.decode()
+                if isinstance(file.file_name, bytes)
+                else str(file.file_name)
+            )
+        data = file.file_object.read()
+        result[key] = UploadFile(filename=fname, file=io.BytesIO(data))
+
+    parser = create_form_parser(headers, _on_field, _on_file)
+    parser.write(body)
+    parser.finalize()
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -238,8 +298,13 @@ async def create_video_evaluation(
 
     logger.info(
         "video evaluation started",
-        extra={"extra_data": {"filename": file.filename, "mime": mime_type,
-                              "size_mb": round(len(content) / (1024 * 1024), 2)}},
+        extra={
+            "extra_data": {
+                "filename": file.filename,
+                "mime": mime_type,
+                "size_mb": round(len(content) / (1024 * 1024), 2),
+            }
+        },
     )
 
     raw = await asyncio.to_thread(service.analyze_video, content, mime_type, effective_prompt)
@@ -268,8 +333,7 @@ async def create_resume_evaluation(
     service: OpenAIService = Depends(get_resume_service),
 ) -> ResumeEvaluationResponse:
     """Analisa o currículo do candidato e retorna relatório estruturado."""
-    # Aumenta o limite de campo para 20 MB — necessário para file_base64 de arquivos grandes
-    form = await request.form(max_field_size=20 * 1024 * 1024)
+    form = await _parse_form(request)
 
     nome_completo = str(form.get("nome_completo") or "").strip()
     formulario = form.get("formulario")
@@ -355,6 +419,7 @@ async def create_resume_evaluation(
         from io import BytesIO
 
         import docx
+
         doc = docx.Document(BytesIO(content))
         text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
         if not text.strip():
@@ -408,9 +473,7 @@ async def create_behavioral_profile(
     except Exception as exc:
         raise PayloadValidationError("Campo 'perguntas' inválido. Envie um JSON válido.") from exc
 
-    respostas_texto = json.dumps(
-        parsed.model_dump(exclude_none=True), ensure_ascii=False, indent=2
-    )
+    respostas_texto = json.dumps(parsed.model_dump(exclude_none=True), ensure_ascii=False, indent=2)
     prompt = f"Respostas do candidato {nome_completo}:\n\n{respostas_texto}"
 
     raw = await asyncio.to_thread(service.analyze_document, prompt, "")

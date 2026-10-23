@@ -7,10 +7,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv/app
 
-# Instala primeiro as dependências (camada cacheável)
-COPY pyproject.toml README.md ./
+# Instala uv para usar o lock file e garantir reprodutibilidade
+RUN pip install --no-cache-dir uv
+
+# Instala dependências de produção a partir do lock file (camada cacheável)
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-dev
+
 COPY app ./app
-RUN pip install --no-cache-dir .
 
 # Usuário não-root
 RUN useradd --create-home appuser
@@ -18,4 +22,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
