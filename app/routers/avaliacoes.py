@@ -220,23 +220,20 @@ def get_consolidated_service(settings=Depends(get_settings)) -> OpenAIService:
 
 
 async def _parse_form(request: Request) -> Any:
-    """Parse multipart form with a 20 MB field size limit.
-
-    Tries Starlette's native max_field_size (recent versions) and falls back
-    to python-multipart directly — which has no per-field cap — for older installs.
-    """
-    max_field = 20 * 1024 * 1024
-    try:
-        return await request.form(max_field_size=max_field)
-    except TypeError:
-        pass  # older Starlette — parse manually below
-
+    """Parse multipart form via python-multipart directly — no per-field size cap."""
     import io
 
     from multipart.multipart import create_form_parser
 
+    ct = request.headers.get("content-type")
+    if not ct:
+        raise PayloadValidationError(
+            "Content-Type ausente. Envie a requisição como multipart/form-data."
+        )
+
     body = await request.body()
-    headers: dict[str, bytes] = {"content-type": request.headers.get("content-type", "").encode()}
+    # create_form_parser expects title-cased key with bytes value
+    headers: dict[str, bytes] = {"Content-Type": ct.encode()}
     result: dict[str, Any] = {}
 
     def _on_field(field: Any) -> None:
