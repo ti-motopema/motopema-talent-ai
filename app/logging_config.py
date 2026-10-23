@@ -46,13 +46,22 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configura o logger raiz com saída JSON em stdout (12-factor)."""
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JsonFormatter())
+    """Configura o logger raiz com saída JSON em stdout (12-factor).
+
+    INFO e abaixo → stdout. WARNING e acima → stderr (destacado no terminal).
+    """
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(JsonFormatter())
+    stdout_handler.addFilter(lambda r: r.levelno < logging.WARNING)
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(JsonFormatter())
+    stderr_handler.setLevel(logging.WARNING)
 
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(stdout_handler)
+    root.addHandler(stderr_handler)
     root.setLevel(level.upper())
 
     # O access log do uvicorn é redundante: o middleware já loga cada requisição
