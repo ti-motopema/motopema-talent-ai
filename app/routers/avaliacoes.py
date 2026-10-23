@@ -11,7 +11,7 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel
 
 from app.config import get_settings
@@ -264,15 +264,23 @@ async def create_video_evaluation(
 
 @router.post("/resume", status_code=201, response_model=ResumeEvaluationResponse)
 async def create_resume_evaluation(
-    nome_completo: str = Form(..., description="Nome completo do candidato"),
-    formulario: str | None = Form(default=None, description="Formulário serializado em JSON"),
-    file: UploadFile | None = File(default=None, description="Currículo (PDF, DOCX ou TXT)"),
-    file_base64: str | None = Form(default=None, description="Currículo em base64 (alternativa ao campo file)"),
-    file_name: str | None = Form(default=None, description="Nome do arquivo quando enviado via file_base64"),
-    prompt: str | None = Form(default=None, description="Instrução adicional ao modelo (opcional)"),
+    request: Request,
     service: OpenAIService = Depends(get_resume_service),
 ) -> ResumeEvaluationResponse:
     """Analisa o currículo do candidato e retorna relatório estruturado."""
+    # Aumenta o limite de campo para 20 MB — necessário para file_base64 de arquivos grandes
+    form = await request.form(max_field_size=20 * 1024 * 1024)
+
+    nome_completo = str(form.get("nome_completo") or "").strip()
+    formulario = form.get("formulario")
+    file = form.get("file")
+    file_base64 = form.get("file_base64")
+    file_name = form.get("file_name")
+    prompt = form.get("prompt")
+
+    if not nome_completo:
+        raise PayloadValidationError("Campo 'nome_completo' é obrigatório.")
+
     parsed_formulario: CandidatoFormulario | None = None
     if formulario:
         try:
@@ -292,7 +300,7 @@ async def create_resume_evaluation(
         except Exception as exc:
             raise PayloadValidationError("Campo 'file_base64' não é base64 válido.") from exc
         filename = file_name or "curriculo.pdf"
-    elif file:
+    elif file and isinstance(file, UploadFile):
         content = await file.read()
         filename = file.filename or ""
     else:
