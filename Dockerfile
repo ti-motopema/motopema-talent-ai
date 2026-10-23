@@ -10,11 +10,11 @@ WORKDIR /srv/app
 # Instala uv para usar o lock file e garantir reprodutibilidade
 RUN pip install --no-cache-dir uv
 
-# Instala dependências de produção a partir do lock file (camada cacheável)
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev
-
 COPY app ./app
+
+# Instala dependências e o projeto a partir do lock file
+RUN uv sync --frozen --no-dev --no-editable
 
 # Usuário não-root
 RUN useradd --create-home appuser
